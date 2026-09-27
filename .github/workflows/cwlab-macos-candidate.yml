@@ -17,11 +17,11 @@ jobs:
       CARGO_BUILD_JOBS: "1"
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
-      SOURCE_COMMIT: af6cbebf581bcba1e160880cdf8f514a10250a4d
+      SOURCE_COMMIT: 058a8a8125ad0dc8389f277a908f55291bfef94f
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: af6cbebf581bcba1e160880cdf8f514a10250a4d
+          ref: 058a8a8125ad0dc8389f277a908f55291bfef94f
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
       - name: Verify source and normalize release build lock
