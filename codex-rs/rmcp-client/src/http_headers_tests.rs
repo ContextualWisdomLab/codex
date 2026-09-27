@@ -531,3 +531,35 @@ async fn refresh_retry_rechecks_deadline_and_redirects() {
     }];
     assert_eq!(retry, &expected_retry);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn helper_receives_selected_codex_home_only() {
+    if std::env::var("CODEX_HEADER_CONTEXT_TEST_CHILD").as_deref() == Ok("1") {
+        let temp = tempfile::tempdir().expect("helper directory");
+        let headers = run_helper(
+            "test \"$CODEX_HOME\" = /selected-account/home && \
+             test -z \"$CODEX_HEADER_CONTEXT_PRIVATE_SENTINEL\" && \
+             printf '{\"X-Account-Context\":\"selected\"}'",
+            temp.path(),
+        )
+        .await
+        .expect("selected home, without unrelated ambient values");
+        let mut expected = HeaderMap::new();
+        expected.insert("x-account-context", HeaderValue::from_static("selected"));
+        assert_eq!(headers, expected);
+        return;
+    }
+    let output = Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "--exact",
+            "http_headers::tests::helper_receives_selected_codex_home_only",
+        ])
+        .env("CODEX_HEADER_CONTEXT_TEST_CHILD", "1")
+        .env("CODEX_HOME", "/selected-account/home")
+        .env("CODEX_HEADER_CONTEXT_PRIVATE_SENTINEL", "must-not-inherit")
+        .output()
+        .await
+        .expect("isolated native helper test");
+    assert_eq!(output.status.code(), Some(0));
+}
