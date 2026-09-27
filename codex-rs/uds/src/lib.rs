@@ -164,6 +164,8 @@ mod platform {
     }
 
     pub(super) async fn connect_stream(socket_path: &Path) -> IoResult<Stream> {
+        // Resolve daemon rendezvous aliases before the kernel checks sun_path length.
+        let socket_path = fs::canonicalize(socket_path).await?;
         UnixStream::connect(socket_path).await
     }
 
