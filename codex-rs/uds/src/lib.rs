@@ -164,9 +164,18 @@ mod platform {
     }
 
     pub(super) async fn connect_stream(socket_path: &Path) -> IoResult<Stream> {
-        // Resolve daemon rendezvous aliases before the kernel checks sun_path length.
-        let socket_path = fs::canonicalize(socket_path).await?;
-        UnixStream::connect(socket_path).await
+        match UnixStream::connect(socket_path).await {
+            Ok(stream) => Ok(stream),
+            Err(error)
+                if error.kind() == ErrorKind::InvalidInput
+                    && !socket_path.as_os_str().is_empty() =>
+            {
+                // Resolve overlong rendezvous aliases without changing valid socket addresses.
+                let socket_path = fs::canonicalize(socket_path).await?;
+                UnixStream::connect(socket_path).await
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(super) async fn is_stale_socket_path(socket_path: &Path) -> IoResult<bool> {
