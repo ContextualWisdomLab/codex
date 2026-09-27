@@ -455,6 +455,12 @@ async fn run_helper(command: &str, cwd: &Path) -> Result<HeaderMap> {
         // Match local MCP subprocess policy; arbitrary ambient variables are not inherited.
         .env_clear()
         .envs(create_env_for_mcp_server(/*extra_env*/ None, &[])?)
+        // Forward account identity only; ambient credentials remain excluded.
+        .envs(
+            std::env::var_os("CODEX_HOME")
+                .filter(|home| !home.is_empty())
+                .map(|home| ("CODEX_HOME", home)),
+        )
         .kill_on_drop(true);
 
     #[cfg(windows)]
