@@ -1,0 +1,94 @@
+name: CWLab macOS Codex candidate
+
+on:
+  push:
+    branches: [fix/uds-macos-candidate-20260928]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.repository == 'ContextualWisdomLab/codex'
+    runs-on: macos-14
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: "1"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      SOURCE_COMMIT: af6cbebf581bcba1e160880cdf8f514a10250a4d
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: af6cbebf581bcba1e160880cdf8f514a10250a4d
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+      - name: Verify source and normalize release build lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          python3 - <<'PY'
+          import hashlib
+          import re
+          import tomllib
+          from pathlib import Path
+          path = Path('codex-rs/Cargo.lock')
+          original = path.read_text()
+          before = tomllib.loads(original)['package']
+          blocks = original.split('[[package]]')
+          changed = 0
+          for i, block in enumerate(blocks[1:], 1):
+              package = tomllib.loads('[[package]]' + block)['package'][0]
+              if 'source' not in package and package['version'] == '0.0.0':
+                  blocks[i], count = re.subn(r'^version = "0\.0\.0"$', 'version = "0.157.1"', block, count=1, flags=re.M)
+                  assert count == 1
+                  changed += count
+          normalized = '[[package]]'.join(blocks)
+          after = tomllib.loads(normalized)['package']
+          assert changed == 155
+          assert [p for p in before if 'source' in p] == [p for p in after if 'source' in p]
+          assert hashlib.sha256(normalized.encode()).hexdigest() == '3146e6c86d7aea44d80193440571ed26ecdb7cc29c44c1c58aeabd38629bd6e5'
+          path.write_text(normalized)
+          PY
+          df -h .
+      - name: Build full CLI
+        working-directory: codex-rs
+        run: cargo build --locked -p codex-cli --bin codex
+      - name: Verify and package candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(codex-rs/target/debug/codex --version)" = 'codex-cli 0.157.1'
+          file codex-rs/target/debug/codex
+          mkdir candidate
+          cp codex-rs/target/debug/codex candidate/codex
+          cp codex-rs/Cargo.lock candidate/Cargo.lock
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+          root = Path('candidate')
+          hashes = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in ('codex', 'Cargo.lock')}
+          receipt = {'source_commit': os.environ['SOURCE_COMMIT'], 'workflow_commit': os.environ['GITHUB_SHA'],
+                     'run_id': os.environ['GITHUB_RUN_ID'], 'machine': platform.machine(),
+                     'rustc': subprocess.check_output(['rustc', '--version'], text=True).strip(),
+                     'profile': 'dev, debug=0, incremental=0', 'sha256': hashes,
+                     'official_release': False}
+          (root / 'build-receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+          tar -czf codex-macos-arm64-candidate.tar.gz -C candidate .
+          shasum -a 256 codex-macos-arm64-candidate.tar.gz > codex-macos-arm64-candidate.tar.gz.sha256
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: codex-macos-arm64-candidate
+          path: |
+            codex-macos-arm64-candidate.tar.gz
+            codex-macos-arm64-candidate.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
