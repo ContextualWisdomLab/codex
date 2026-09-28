@@ -305,3 +305,60 @@ async fn implicit_peer_validation_rejects_elevated_listener() {
         expected
     );
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stream_connect_resolves_overlong_rendezvous_alias() {
+    let temp = tempfile::Builder::new()
+        .prefix("codex-uds-")
+        .tempdir_in("/tmp")
+        .expect("private short socket directory");
+    let physical = temp.path().join("socket");
+    let parent = temp.path().join("account".repeat(/*n*/ 25));
+    std::fs::create_dir(&parent).expect("long rendezvous directory");
+    let alias = parent.join("app-server-control.sock");
+    std::os::unix::fs::symlink(&physical, &alias).expect("rendezvous alias");
+    assert_eq!(
+        UnixStream::connect(&alias)
+            .await
+            .err()
+            .expect("missing daemon")
+            .kind(),
+        ErrorKind::NotFound,
+    );
+
+    let mut listener = UnixListener::bind(&physical).await.expect("short socket");
+    let mut client = UnixStream::connect(&alias)
+        .await
+        .expect("resolve long alias");
+    client.write_all(b"ok").await.expect("write request");
+    let mut server = listener.accept().await.expect("accept connection");
+    let mut request = [0; 2];
+    server.read_exact(&mut request).await.expect("read request");
+    assert_eq!(&request, b"ok");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stream_connect_preserves_short_alias_to_long_physical_path() {
+    let temp = tempfile::Builder::new()
+        .prefix("codex-uds-")
+        .tempdir_in("/tmp")
+        .expect("private short socket directory");
+    let physical_parent = temp.path().join("account".repeat(/*n*/ 25));
+    std::fs::create_dir(&physical_parent).expect("long socket directory");
+    let parent_alias = temp.path().join("p");
+    std::os::unix::fs::symlink(&physical_parent, &parent_alias).expect("short parent alias");
+    let socket_path = parent_alias.join("socket");
+    let mut listener = UnixListener::bind(&socket_path)
+        .await
+        .expect("short socket alias");
+    let mut client = UnixStream::connect(&socket_path)
+        .await
+        .expect("preserve short alias");
+    client.write_all(b"ok").await.expect("write request");
+    let mut server = listener.accept().await.expect("accept connection");
+    let mut request = [0; 2];
+    server.read_exact(&mut request).await.expect("read request");
+    assert_eq!(&request, b"ok");
+}
